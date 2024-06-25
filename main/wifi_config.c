@@ -97,7 +97,7 @@ store_wifi_password(const uint8_t* password)
     return set_wifi_nvs_str(WIFI_PASSWORD, password);
 }
 
-const uint8_t*
+uint8_t*
 get_wifi_password()
 {
     return get_wifi_nvs_str(WIFI_PASSWORD);
@@ -109,7 +109,7 @@ store_wifi_ssid(const uint8_t* password)
     return set_wifi_nvs_str(WIFI_SSID, password);
 }
 
-const uint8_t*
+uint8_t*
 get_wifi_ssid()
 {
     return get_wifi_nvs_str(WIFI_SSID);
@@ -182,8 +182,10 @@ initialise_wifi(void)
     assert(sta_netif);
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    uint8_t* ssid = get_wifi_ssid();
+    uint8_t* password = get_wifi_password();
 
-    if (get_wifi_ssid() == NULL) {
+    if (ssid == NULL) {
         ESP_LOGI(TAG, "SSID is NULL. Fetch new!\n");
         ESP_ERROR_CHECK(esp_event_handler_register(
           WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
@@ -201,7 +203,9 @@ initialise_wifi(void)
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_start());
 
-        wifi_connect(get_wifi_ssid(), get_wifi_password());
+        wifi_connect(ssid, password);
+        free(ssid);
+        free(password);
     }
 }
 
