@@ -9,6 +9,12 @@
 #include "esp_smartconfig.h"
 #include "esp_system.h"
 #include "mqtt_client.h"
+
+#include "esp_event.h"
+#include "esp_log.h"
+#include "esp_netif.h"
+#include "esp_wifi.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "include/sensor_read.h"
@@ -17,7 +23,20 @@
 #include <inttypes.h>
 #include <stdio.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+
+#include "lwip/dns.h"
+#include "lwip/netdb.h"
+#include "lwip/sockets.h"
+
 #define CONFIG_BROKER_URL "mqtt://192.168.101.166"
+
+static int err_count = 0;
+
+static const char* TAG = "mqtt";
 
 void
 print_chip_info(void)
@@ -52,6 +71,76 @@ print_chip_info(void)
            esp_get_minimum_free_heap_size());
 }
 
+static void
+mqtt_event_handler(void* handler_args,
+                   esp_event_base_t base,
+                   int32_t event_id,
+                   void* event_data)
+{
+    ESP_LOGI(TAG,
+             "Event dispatched from event loop base=%s, event_id=%" PRIi32 "",
+             base,
+             event_id);
+    esp_mqtt_event_handle_t event = event_data;
+    esp_mqtt_client_handle_t client = event->client;
+    int msg_id;
+    switch ((esp_mqtt_event_id_t)event_id) {
+        case MQTT_EVENT_CONNECTED:
+            ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
+            msg_id =
+              esp_mqtt_client_publish(client, "/topic/qos1", "data_3", 0, 1, 0);
+            ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
+
+            msg_id = esp_mqtt_client_subscribe(client, "/topic/qos0", 0);
+            ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
+
+            msg_id = esp_mqtt_client_subscribe(client, "/topic/qos1", 1);
+            ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
+
+            msg_id = esp_mqtt_client_unsubscribe(client, "/topic/qos1");
+            ESP_LOGI(TAG, "sent unsubscribe successful, msg_id=%d", msg_id);
+            break;
+        case MQTT_EVENT_DISCONNECTED:
+            ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+            break;
+
+        case MQTT_EVENT_SUBSCRIBED:
+            ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+            msg_id =
+              esp_mqtt_client_publish(client, "/topic/qos0", "data", 0, 0, 0);
+            ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
+            break;
+        case MQTT_EVENT_UNSUBSCRIBED:
+            ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
+            break;
+        case MQTT_EVENT_PUBLISHED:
+            ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+            break;
+        case MQTT_EVENT_DATA:
+            ESP_LOGI(TAG, "MQTT_EVENT_DATA");
+            printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+            printf("DATA=%.*s\r\n", event->data_len, event->data);
+            break;
+        case MQTT_EVENT_ERROR:
+            err_count++;
+            ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
+            if (event->error_handle->error_type ==
+                MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+                ESP_LOGI(
+                  TAG,
+                  "Last errno string (%s)",
+                  strerror(event->error_handle->esp_transport_sock_errno));
+            }
+            if (err_count > 2) {
+                esp_restart();
+            }
+            break;
+        default:
+            ESP_LOGI(TAG, "Other event id:%d", event->event_id);
+            break;
+    }
+}
+
 esp_mqtt_client_handle_t
 create_mqtt()
 {
@@ -59,6 +148,8 @@ create_mqtt()
         .broker.address.uri = CONFIG_BROKER_URL,
     };
     esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
+    esp_mqtt_client_register_event(
+      client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(client);
     return client;
 }
@@ -82,8 +173,10 @@ app_main(void)
         sprintf(tempstr, "%g", temp);
         sprintf(humstr, "%g", hum);
 
-        esp_mqtt_client_publish(mqtt_handle, "/room/temperature", tempstr, 0, 0, 0);
-        esp_mqtt_client_publish(mqtt_handle, "/room/humidity", humstr, 0, 0, 0);
-        vTaskDelay(30000 / portTICK_PERIOD_MS);
+        esp_mqtt_client_publish(
+          mqtt_handle, "room/temperature", tempstr, 0, 0, 0);
+        vTaskDelay(15000 / portTICK_PERIOD_MS);
+        esp_mqtt_client_publish(mqtt_handle, "room/humidity", humstr, 0, 0, 0);
+        vTaskDelay(15000 / portTICK_PERIOD_MS);
     }
 }

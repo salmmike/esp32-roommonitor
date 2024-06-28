@@ -64,12 +64,12 @@ dht11_wait_for_response()
 {
     int cycles = 0;
 
-    while (gpio_get_level(GPIO_INPUT_IO_0) == 0) {
+    while (gpio_get_level(GPIO_INPUT_IO_0) == 0 && cycles < 200) {
         ets_delay_us(1);
         cycles++;
     }
 
-    while (gpio_get_level(GPIO_INPUT_IO_0) == 1) {
+    while (gpio_get_level(GPIO_INPUT_IO_0) == 1 && cycles < 200) {
         ets_delay_us(1);
         cycles++;
     }
@@ -108,7 +108,10 @@ dht11_read_data()
         return DHT11_READ_FAIL;
     }
 
-    while (gpio_get_level(GPIO_INPUT_IO_0) == 0) {
+    for (size_t i = 0; i < 200; ++i) {
+        if (gpio_get_level(GPIO_INPUT_IO_0) == 1) {
+            break;
+        }
         ets_delay_us(1);
     }
 
@@ -127,8 +130,7 @@ dht11_read_data()
         ESP_LOGI(TAG,
                  "Read sensor data SUCCESS! Temp: %fC Hum: %fRH",
                  c_temperature,
-                 c_humidity
-                 );
+                 c_humidity);
 
         return DHT11_READ_SUCCESS;
     }
@@ -163,7 +165,7 @@ read_dht11(float* temperature, float* humidity)
     return 0;
 }
 
-int
+TaskHandle_t
 start_dht11_task()
 {
     gpio_config_t io_conf = {};
@@ -173,7 +175,9 @@ start_dht11_task()
     io_conf.pull_down_en = 0;
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
+    TaskHandle_t task_handle;
 
-    xTaskCreate(read_values_task, "read_dht11_task", 4096, NULL, 2, NULL);
-    return 0;
+    xTaskCreate(
+      read_values_task, "read_dht11_task", 4096, NULL, 2, &task_handle);
+    return task_handle;
 }
