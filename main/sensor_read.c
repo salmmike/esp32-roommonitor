@@ -138,9 +138,6 @@ dht11_read_data()
       TAG, "Reading sensor data failed. Sum: %d, checkbit: %d", sum, data[3]);
     ESP_LOGI(TAG, "FAILED READ: temp: %dC hum: %dRH", data[0], data[2]);
 
-    // set_as_output();
-    // gpio_set_level(GPIO_OUTPUT_IO_0, 0);
-
     return DHT11_READ_FAIL;
 }
 
